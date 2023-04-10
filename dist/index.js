@@ -4,8 +4,7 @@
 /***/ 2909:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
-/* eslint-disable no-restricted-globals */
-const {Octokit} = __nccwpck_require__(5375);
+const { Octokit } = __nccwpck_require__(5375);
 
 const doCloseIssue = async function (token, repo, issue_number) {
   const octokit = new Octokit({
@@ -28,30 +27,33 @@ const doCloseIssue = async function (token, repo, issue_number) {
 };
 
 exports.closeIssue = async function (argv) {
-  const maxPerPage = 100;
   const octokit = new Octokit({
     auth: argv.token,
   });
-  const commits = await octokit.request(
-    `GET /repos/kungfu-trader/${argv.repo}/issues/${argv.pullRequestNumber}/comments`,
-    {
-      per_page: maxPerPage,
-      headers: {
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    },
-  );
-  const re = /#\d+/g;
-  for (const element of commits.data) {
-    const issues = element.body.match(re);
-    if (issues) {
-      console.log('issues', issues);
-      for (const it of issues) {
-        await doCloseIssue(argv.token, argv.repo, it.substring(1));
+  const iss = await octokit.graphql(`
+    query{
+      repository(name: "${argv.repo}", owner: "kungfu-trader") {
+        pullRequest(number: ${argv.pullRequestNumber}) {
+          closingIssuesReferences (first: 100) {
+            edges {
+              node {
+                number
+              }
+            }
+          }
+        }
       }
+    } 
+  `);
+  const issNumbers = iss?.repository?.pullRequest?.closingIssuesReferences.edges;
+  if (issNumbers) {
+    for (const issue of issNumbers) {
+      const prNumber = issue.node.number;
+      console.log('To close issue', prNumber);
+      await doCloseIssue(argv.token, argv.repo, prNumber);
     }
   }
-}
+};
 
 
 /***/ }),
@@ -12672,7 +12674,6 @@ var __webpack_exports__ = {};
 // This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
 (() => {
 var exports = __webpack_exports__;
-/* eslint-disable no-restricted-globals */
 const lib = (exports.lib = __nccwpck_require__(2909));
 const core = __nccwpck_require__(2186);
 const github = __nccwpck_require__(5438);
