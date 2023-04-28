@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-globals */
 const lib = require('./lib.js');
 
 const argv = require('yargs/yargs')(process.argv.slice(2))
@@ -8,9 +7,5 @@ const argv = require('yargs/yargs')(process.argv.slice(2))
   .option('pullRequestNumber', { description: 'pullRequestNumber', type: 'number' })
   .help().argv;
 
-//const owner = 'kungfu-trader';
-//const repo = 'action-merge-close-issue';
-//const pullRequestNumber = 6;
-//const token = core.getInput('token');
-//const token = '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';
+// node cli.js --token token --owner kungfu-trader --repo test-rollback-packages --pullRequestNumber 88
 lib.closeIssue(argv).catch(console.error);

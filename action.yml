@@ -3,7 +3,7 @@ author: "Kungfu Trader"
 description: "Close Issue When Merged"
 inputs:
   token:
-    description: "E.g. secrets.GITHUB_TOKEN"
+    description: "secrets.GITHUB_TOKEN"
     required: true
 runs:
   using: "node16"

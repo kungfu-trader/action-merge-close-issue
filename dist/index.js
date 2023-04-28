@@ -2,19 +2,12 @@
 /******/ 	var __webpack_modules__ = ({
 
 /***/ 2909:
-/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
-"use strict";
-__nccwpck_require__.r(__webpack_exports__);
-/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
-/* harmony export */   "closeIssue": () => (/* binding */ closeIssue)
-/* harmony export */ });
-/* harmony import */ var _octokit_rest__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(5375);
-/* eslint-disable no-restricted-globals */
-
+const { Octokit } = __nccwpck_require__(5375);
 
 const doCloseIssue = async function (token, repo, issue_number) {
-  const octokit = new _octokit_rest__WEBPACK_IMPORTED_MODULE_0__/* .Octokit */ .v({
+  const octokit = new Octokit({
     auth: token,
   });
   try {
@@ -33,34 +26,34 @@ const doCloseIssue = async function (token, repo, issue_number) {
   }
 };
 
-async function closeIssue(argv) {
-  const maxPerPage = 100;
-  const octokit = new _octokit_rest__WEBPACK_IMPORTED_MODULE_0__/* .Octokit */ .v({
+exports.closeIssue = async function (argv) {
+  const octokit = new Octokit({
     auth: argv.token,
   });
-  const commits = await octokit.request(
-    `GET /repos/kungfu-trader/${argv.repo}/pulls/${argv.pullRequestNumber}/commits`,
-    {
-      owner: 'kungfu-trader',
-      repo: argv.repo,
-      pull_number: argv.pullRequestNumber,
-      per_page: maxPerPage,
-      headers: {
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    },
-  );
-  const re = /#\d+/g;
-  for (const element of commits.data) {
-    const issues = element.commit.message.match(re);
-    if (issues) {
-      console.log('issues', issues);
-      for (const it of issues) {
-        await doCloseIssue(argv.token, argv.repo, it.substring(1));
+  const iss = await octokit.graphql(`
+    query{
+      repository(name: "${argv.repo}", owner: "kungfu-trader") {
+        pullRequest(number: ${argv.pullRequestNumber}) {
+          closingIssuesReferences (first: 100) {
+            edges {
+              node {
+                number
+              }
+            }
+          }
+        }
       }
+    } 
+  `);
+  const issNumbers = iss?.repository?.pullRequest?.closingIssuesReferences.edges;
+  if (issNumbers) {
+    for (const issue of issNumbers) {
+      const prNumber = issue.node.number;
+      console.log('To close issue', prNumber);
+      await doCloseIssue(argv.token, argv.repo, prNumber);
     }
   }
-}
+};
 
 
 /***/ }),
@@ -7229,10 +7222,9 @@ exports.request = request;
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
-var __webpack_unused_export__;
 
 
-__webpack_unused_export__ = ({ value: true });
+Object.defineProperty(exports, "__esModule", ({ value: true }));
 
 var core = __nccwpck_require__(6762);
 var pluginRequestLog = __nccwpck_require__(8883);
@@ -7245,7 +7237,7 @@ const Octokit = core.Octokit.plugin(pluginRequestLog.requestLog, pluginRestEndpo
   userAgent: `octokit-rest.js/${VERSION}`
 });
 
-exports.v = Octokit;
+exports.Octokit = Octokit;
 //# sourceMappingURL=index.js.map
 
 
@@ -12673,34 +12665,6 @@ module.exports = JSON.parse('[[[0,44],"disallowed_STD3_valid"],[[45,46],"valid"]
 /******/ 	}
 /******/ 	
 /************************************************************************/
-/******/ 	/* webpack/runtime/define property getters */
-/******/ 	(() => {
-/******/ 		// define getter functions for harmony exports
-/******/ 		__nccwpck_require__.d = (exports, definition) => {
-/******/ 			for(var key in definition) {
-/******/ 				if(__nccwpck_require__.o(definition, key) && !__nccwpck_require__.o(exports, key)) {
-/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
-/******/ 				}
-/******/ 			}
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
-/******/ 	(() => {
-/******/ 		__nccwpck_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/make namespace object */
-/******/ 	(() => {
-/******/ 		// define __esModule on exports
-/******/ 		__nccwpck_require__.r = (exports) => {
-/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
-/******/ 			}
-/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
-/******/ 		};
-/******/ 	})();
-/******/ 	
 /******/ 	/* webpack/runtime/compat */
 /******/ 	
 /******/ 	if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = __dirname + "/";
@@ -12710,7 +12674,6 @@ var __webpack_exports__ = {};
 // This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
 (() => {
 var exports = __webpack_exports__;
-/* eslint-disable no-restricted-globals */
 const lib = (exports.lib = __nccwpck_require__(2909));
 const core = __nccwpck_require__(2186);
 const github = __nccwpck_require__(5438);

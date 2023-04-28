@@ -1,5 +1,4 @@
-/* eslint-disable no-restricted-globals */
-import { Octokit } from '@octokit/rest';
+const { Octokit } = require('@octokit/rest');
 
 const doCloseIssue = async function (token, repo, issue_number) {
   const octokit = new Octokit({
@@ -21,31 +20,31 @@ const doCloseIssue = async function (token, repo, issue_number) {
   }
 };
 
-export async function closeIssue(argv) {
-  const maxPerPage = 100;
+exports.closeIssue = async function (argv) {
   const octokit = new Octokit({
     auth: argv.token,
   });
-  const commits = await octokit.request(
-    `GET /repos/kungfu-trader/${argv.repo}/pulls/${argv.pullRequestNumber}/commits`,
-    {
-      owner: 'kungfu-trader',
-      repo: argv.repo,
-      pull_number: argv.pullRequestNumber,
-      per_page: maxPerPage,
-      headers: {
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    },
-  );
-  const re = /#\d+/g;
-  for (const element of commits.data) {
-    const issues = element.commit.message.match(re);
-    if (issues) {
-      console.log('issues', issues);
-      for (const it of issues) {
-        await doCloseIssue(argv.token, argv.repo, it.substring(1));
+  const iss = await octokit.graphql(`
+    query{
+      repository(name: "${argv.repo}", owner: "kungfu-trader") {
+        pullRequest(number: ${argv.pullRequestNumber}) {
+          closingIssuesReferences (first: 100) {
+            edges {
+              node {
+                number
+              }
+            }
+          }
+        }
       }
+    } 
+  `);
+  const issNumbers = iss?.repository?.pullRequest?.closingIssuesReferences.edges;
+  if (issNumbers) {
+    for (const issue of issNumbers) {
+      const prNumber = issue.node.number;
+      console.log('To close issue', prNumber);
+      await doCloseIssue(argv.token, argv.repo, prNumber);
     }
   }
-}
+};
