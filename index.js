@@ -7,11 +7,13 @@ const main = async function () {
   const pullRequestNumber = context.payload.pull_request.number;
   const argv = {
     token: core.getInput('token'),
+    mondayApi: core.getInput('monday_api_key'),
     owner: context.payload.repository.owner.login,
     repo: context.payload.repository.name,
     pullRequestNumber: pullRequestNumber,
   };
-  await lib.closeIssue(argv);
+  console.log('mondayApi length:', argv.mondayApi.length);
+  await lib.getPulls(argv, pullRequestNumber);
 };
 
 if (require.main === module) {
