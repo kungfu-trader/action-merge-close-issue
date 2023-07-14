@@ -21,9 +21,9 @@ const doCloseIssue = async function (token, repo, issue_number) {
         'X-GitHub-Api-Version': '2022-11-28',
       },
     });
-    console.log(`close issue ${issue_number} for repo ${repo}`);
+    console.log(`close issue completed ${issue_number}`);
   } catch (e) {
-    console.log(e);
+    console.log(e.message);
   }
 };
 
@@ -54,22 +54,20 @@ const closeIssue = async function (argv, pullRequestNumber, close) {
       const prNumber = issue.node.number;
       const body = issue.node.body;
       const title = issue.node.title;
-      console.log('To close issue', prNumber, body, title, close);
+
+      const lastIdx = title.indexOf('#', 1);
+      const itemId = title.slice(1, lastIdx);
 
       if (close) {
-        console.log('doCloseIssue issuenumber', prNumber);
+        console.log('close issue', `prNumber: ${prNumber} body: ${body}, title: ${title} repo: ${argv.repo}`);
         await doCloseIssue(argv.token, argv.repo, prNumber);
-        const lastIdx = title.indexOf('#', 1);
         if (lastIdx > 1) {
-          const itemId = title.slice(1, lastIdx);
-          console.log('updateStatus', body, itemId);
+          console.log(`updateStatus to monday boardId: ${body} itemId: ${itemId} targetStatus: Done`);
           await updateStatus(argv.mondayApi, body, itemId, 'Done');
         }
       } else {
-        const lastIdx = title.indexOf('#', 1);
         if (lastIdx > 1) {
-          const itemId = title.slice(1, lastIdx);
-          console.log('updateStatus', body, itemId);
+          console.log(`updateStatus to monday boardId: ${body} itemId: ${itemId} targetStatus: Waiting test`);
           await updateStatus(argv.mondayApi, body, itemId, 'Waiting test');
         }
       }
@@ -100,54 +98,6 @@ getMatchName = function (headIn, baseIn) {
     return { match: true, close: true, head: headIn.replace('alpha', 'dev'), base: headIn };
   }
 };
-
-// const getMondayInfo = async ({mondayApi, board_id, item_id}) => {
-//   const query = `
-//   query{
-//       boards(ids:${board_id}){
-//         groups {
-//           title
-//           id
-//         }
-//         items(ids:${item_id}){
-//           id
-//           name
-//           group {
-//               id
-//               title
-//           }
-//           state
-//         }
-//         name
-//         id
-//       }
-//     }
-//   `;
-//   const result = await axios.post(
-//       'https://api.monday.com/v2',
-//       JSON.stringify({query,}),
-//       {
-//           headers: {
-//               'Content-Type': 'application/json',
-//               Authorization: mondayApi,
-//           }
-//       });
-//       if (!Array.isArray(result?.data?.data?.boards)) {
-//           return;
-//       }
-//       return {
-//           items: result.data.data.boards.reduce((acc, cur) => {
-//               const devGroupId = cur.groups.find(v => 'In development' === v.title).id;
-//               return [...acc, ...cur.items
-//                   .filter(v => v.group.id === devGroupId)
-//                   .map(v => ({
-//                       ...v,
-//                       board_id: cur.id,
-//                       board_name: cur.name
-//                   }))]
-//       }, [])
-//     }
-// }
 
 exports.getPulls = async function (argv, prNumber) {
   const octokit = new Octokit({
@@ -232,10 +182,11 @@ updateStatus = async function (mondayapi, boardId, itemId, status) {
         },
       },
     );
-    console.log(ret);
+    console.log(`updateStatus to monday completed boardId: ${boardId} itemId: ${itemId}`);
   } catch (e) {
     console.log('-------------------');
-    console.log(e);
+    // throw new Error(`updateStatus to monday failed ${e.message}`);
+    console.error(`updateStatus to monday failed ${e.message} boardId: ${boardId} itemId: ${itemId}`);
   }
 };
 
