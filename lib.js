@@ -123,7 +123,7 @@ exports.getPulls = async function (argv, prNumber) {
         if (head && base) {
           curHead = pulls.data[0].head.ref;
           curBase = pulls.data[0].base.ref;
-          if (head == curHead && base == curBase) {
+          if (head == curHead && base == curBase &&  pulls.data[0].merged_at) {
             break;
           } else if (curHead == matchName.head && curBase == matchName.base) {
             await closeIssue(argv, pulls.data[0].number, true);
@@ -159,7 +159,27 @@ updateStatus = async function (mondayapi, boardId, itemId, status) {
     console.log('empty itemId:', itemId);
     return;
   }
-  let query3 = `mutation{ change_column_value (board_id:${boardId}, item_id:${itemId}, column_id: "status", value: "{\\\"label\\\": \\\"${status}\\\"}"){id}}`;
+
+  const statusColumnId = await axios.post(
+    'https://api.monday.com/v2',
+    JSON.stringify({
+      query: `query {boards (ids: ${boardId}) { columns { id title }}}`,
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: mondayapi,
+      },
+    },
+  )
+  .then(res => res.data?.data?.boards?.[0]?.columns.find(v => v.title.toUpperCase().includes('STATUS'))?.id)
+  .catch(() => null);
+  if (!statusColumnId) {
+    return;
+  }
+  let query3 = `mutation{
+    change_column_value (board_id:${boardId}, item_id:${itemId}, column_id: ${statusColumnId}, value: "{\\\"label\\\": \\\"${status}\\\"}"){id}
+  }`;
   // move_item_to_group (item_id: ${itemId}, group_id: ${groupId}) {
   //     id
   // }
