@@ -158,20 +158,21 @@ updateStatus = async function (mondayapi, boardId, itemId, status) {
     return;
   }
 
-  const statusColumnId = await axios.post(
-    'https://api.monday.com/v2',
-    JSON.stringify({
-      query: `query {boards (ids: ${boardId}) { columns { id title }}}`,
-    }),
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: mondayapi,
+  const statusColumnId = await axios
+    .post(
+      'https://api.monday.com/v2',
+      JSON.stringify({
+        query: `query {boards (ids: ${boardId}) { columns { id title }}}`,
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: mondayapi,
+        },
       },
-    },
-  )
-  .then(res => res.data?.data?.boards?.[0]?.columns.find(v => v.title.toUpperCase().includes('STATUS'))?.id)
-  .catch(() => null);
+    )
+    .then((res) => res.data?.data?.boards?.[0]?.columns.find((v) => v.title.toUpperCase().includes('STATUS'))?.id)
+    .catch(() => null);
   if (!statusColumnId) {
     return;
   }
