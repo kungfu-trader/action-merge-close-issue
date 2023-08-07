@@ -123,7 +123,7 @@ exports.getPulls = async function (argv, prNumber) {
         if (head && base) {
           curHead = pulls.data[0].head.ref;
           curBase = pulls.data[0].base.ref;
-          if (head == curHead && base == curBase &&  pulls.data[0].merged_at) {
+          if (head == curHead && base == curBase && pulls.data[0].merged_at) {
             break;
           } else if (curHead == matchName.head && curBase == matchName.base) {
             await closeIssue(argv, pulls.data[0].number, true);
@@ -136,11 +136,9 @@ exports.getPulls = async function (argv, prNumber) {
           console.log('matchName', JSON.stringify(matchName));
           if (!matchName.match) {
             break;
-          } else if (!matchName.close) {
-            await closeIssue(argv, pulls.data[0].number, false);
-            break;
-          } else {
-            await closeIssue(argv, pulls.data[0].number, true);
+          }
+          if (pulls.data[0].merged_at) {
+            closeIssue(argv, pulls.data[0].number, !!matchName.close);
           }
         }
       }
@@ -196,7 +194,7 @@ updateStatus = async function (mondayapi, boardId, itemId, status) {
         },
       },
     );
-    console.log(`updateStatus to monday completed boardId: ${boardId} itemId: ${itemId}`);
+    console.log(`updateStatus to monday completed boardId: ${boardId} itemId: ${itemId} status:${status}`);
   } catch (e) {
     console.log('-------------------');
     // throw new Error(`updateStatus to monday failed ${e.message}`);
