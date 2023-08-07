@@ -76,7 +76,6 @@ getMatchName = function (headIn, baseIn) {
     return failObj;
   }
   const channel = match[1];
-
   let baseChannel = 'alpha';
   if (channel == 'alpha') {
     baseChannel = 'release';
@@ -85,11 +84,12 @@ getMatchName = function (headIn, baseIn) {
   if (bashValidate != baseIn) {
     return failObj;
   }
-  const closeObj = { match: true, close: false, head: '', base: '' };
+  const devRef = headIn.replace('alpha', 'dev');
+  const closeObj = { match: true, close: false, head: '', base: '', dev: devRef };
   if (channel == 'dev') {
     return closeObj;
   } else {
-    return { match: true, close: true, head: headIn.replace('alpha', 'dev'), base: headIn };
+    return { match: true, close: true, head: headIn.replace('alpha', 'dev'), base: headIn, dev: devRef };
   }
 };
 
@@ -120,21 +120,23 @@ exports.getPulls = async function (argv, prNumber) {
       } else {
         page++;
         console.log('pr number', pulls.data[0].number, prNumber);
-        if (head && base) {
+        if (head && base && pulls.data[0].merged_at) {
           curHead = pulls.data[0].head.ref;
           curBase = pulls.data[0].base.ref;
-          if (head == curHead && base == curBase && pulls.data[0].merged_at) {
+          if (head == curHead && base == curBase) {
             break;
           } else if (curHead == matchName.head && curBase == matchName.base) {
-            await closeIssue(argv, pulls.data[0].number, true);
+            await closeIssue(argv, pulls.data[0].number, !!matchName.close);
+          } else if (curBase == matchName.dev) {
+            await closeIssue(argv, pulls.data[0].number, !!matchName.close);
           }
         } else if (!head && !base && pulls.data[0].number == prNumber) {
           head = pulls.data[0].head.ref;
           base = pulls.data[0].base.ref;
           matchName = getMatchName(head, base);
           console.log('head', head, 'base', base);
-          console.log('matchName', JSON.stringify(matchName));
-          if (!matchName.match) {
+          console.log('matchName', matchName);
+          if (!matchName.match || !pulls.data[0].merged_at) {
             break;
           }
           if (pulls.data[0].merged_at) {
