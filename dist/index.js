@@ -166,11 +166,14 @@ updateStatus = async function (mondayapi, boardId, itemId, status) {
     return;
   }
 
-  const statusColumnId = await axios
+  const board = await axios
     .post(
       'https://api.monday.com/v2',
       JSON.stringify({
-        query: `query {boards (ids: ${boardId}) { columns { id title }}}`,
+        query: `query {boards (ids: ${boardId}) {
+          columns { id title }
+          groups { id title }
+        }}`,
       }),
       {
         headers: {
@@ -179,17 +182,21 @@ updateStatus = async function (mondayapi, boardId, itemId, status) {
         },
       },
     )
-    .then((res) => res.data?.data?.boards?.[0]?.columns.find((v) => v.title.toUpperCase().includes('STATUS'))?.id)
+    .then((res) => res.data?.data?.boards?.[0])
     .catch(() => null);
-  if (!statusColumnId) {
+  if (!board) {
     return;
   }
-  let query3 = `mutation{
+  const statusColumnId = board.columns.find((v) => v.title.toUpperCase().includes('STATUS'))?.id;
+  const launchGroupId = board.groups.find((v) => v.title.toUpperCase().includes('LAUNCH'))?.id;
+  const waitGroupId = board.groups.find((v) => v.title.toUpperCase().includes('TEST'))?.id;
+  const groupId = status === 'Done' ? launchGroupId : waitGroupId;
+
+  const moveItemTOGroup = `move_item_to_group (item_id: ${itemId}, group_id: ${groupId}){id}`;
+  const query3 = `mutation{
     change_column_value (board_id:${boardId}, item_id:${itemId}, column_id: ${statusColumnId}, value: "{\\\"label\\\": \\\"${status}\\\"}"){id}
+    ${groupId ? moveItemTOGroup : ''}
   }`;
-  // move_item_to_group (item_id: ${itemId}, group_id: ${groupId}) {
-  //     id
-  // }
   try {
     const ret = await axios.post(
       'https://api.monday.com/v2',
