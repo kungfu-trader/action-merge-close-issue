@@ -1,179 +1,191 @@
 /******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
-/***/ 2909:
+/***/ 6776:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 const { Octokit } = __nccwpck_require__(5375);
 const axios = __nccwpck_require__(8757);
+let octokit;
 
-const doCloseIssue = async function (token, repo, issue_number) {
-  const octokit = new Octokit({
-    auth: token,
+exports.getPulls = async function (argv) {
+  octokit = new Octokit({
+    auth: argv.token,
   });
-  try {
-    await octokit.request(`PATCH /repos/kungfu-trader/${repo}/issues/${issue_number}`, {
-      owner: 'kungfu-trader',
-      repo: repo,
-      issue_number: issue_number,
-      state: 'closed',
-      headers: {
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    });
-    console.log(`close issue completed ${issue_number}`);
-  } catch (e) {
-    console.log(e.message);
+  await getPrIssues(argv);
+};
+
+const getPrIssues = async (argv) => {
+  const current = await getPr(argv, argv.pullRequestNumber);
+  if (!current) {
+    return;
+  }
+  const baseRef = current.base.ref;
+  const headRef = current.head.ref;
+  const mergedAt = mergedAtFormat(current.merged_at);
+  const { devPulls, alphaPulls, releasePulls } = await getPrList(argv, baseRef, headRef);
+  if (baseRef.startsWith('alpha/')) {
+    const issues = await traversePrereleasePulls(argv, argv.pullRequestNumber, devPulls, alphaPulls, mergedAt);
+    issuesHandle(argv, issues, false);
+  }
+  if (baseRef.startsWith('release/')) {
+    const issues = await traverseReleasePr(argv, argv.pullRequestNumber, devPulls, alphaPulls, releasePulls, mergedAt);
+    issuesHandle(argv, issues, true);
   }
 };
 
-const closeIssue = async function (argv, pullRequestNumber, close) {
-  const octokit = new Octokit({
-    auth: argv.token,
-  });
-  const iss = await octokit.graphql(`
-    query{
-      repository(name: "${argv.repo}", owner: "kungfu-trader") {
-        pullRequest(number: ${pullRequestNumber}) {
-          closingIssuesReferences (first: 100) {
-            edges {
-              node {
-                number
-                body
-                title
+const issuesHandle = async (argv, issues, closed) => {
+  const { items } = issues.reduce(
+    (acc, cur) => {
+      if (!acc.set.has(cur.number)) {
+        acc.items.push(cur);
+      }
+      acc.set.add(cur.number);
+      return acc;
+    },
+    { items: [], set: new Set() },
+  );
+  for await (const issue of items) {
+    closed && (await closeIssue(argv, issue.number));
+    const status = closed ? 'Done' : 'Waiting test';
+    const title = issue.title;
+    const lastIdx = title.indexOf('#', 1);
+    const itemId = title.slice(1, lastIdx);
+    lastIdx > 1 && (await updateStatus(argv.mondayApi, issue.body, itemId, status));
+  }
+};
+
+const getPrList = async (argv, baseRef, headRef) => {
+  if (baseRef.startsWith('release/')) {
+    return {
+      devPulls: await getPrBatch(argv, { base: headRef.replace('alpha', 'dev') }),
+      alphaPulls: await getPrBatch(argv, { base: headRef }),
+      releasePulls: await getPrBatch(argv, { base: baseRef }),
+    };
+  }
+  return {
+    devPulls: await getPrBatch(argv, { base: headRef }),
+    alphaPulls: await getPrBatch(argv, { base: baseRef }),
+  };
+};
+
+const traverseReleasePr = async (argv, pullRequestNumber, devPulls, alphaPulls, releasePulls, rightRange) => {
+  const idx = releasePulls.findIndex((v) => v.number === pullRequestNumber);
+  const leftRange = releasePulls[idx + 1]?.merged_at || 0;
+  const items = alphaPulls.filter((v) => v.merged_at >= leftRange && v.merged_at <= rightRange);
+  let result = await findIssues(argv, pullRequestNumber);
+  for await (const item of items) {
+    result = [...result, ...(await traversePrereleasePulls(argv, item.number, devPulls, alphaPulls, item.merged_at))];
+  }
+  return result;
+};
+
+const traversePrereleasePulls = async (argv, pullRequestNumber, devPulls, alphaPulls, rightRange) => {
+  const idx = alphaPulls.findIndex((v) => v.number === pullRequestNumber);
+  const leftRange = alphaPulls[idx + 1]?.merged_at || 0;
+  const items = devPulls.filter((v) => v.merged_at >= leftRange && v.merged_at <= rightRange);
+  let result = await findIssues(argv, pullRequestNumber);
+  for await (const pull of items) {
+    result = [...result, ...(await findIssues(argv, pull.number))];
+  }
+  return result;
+};
+
+const getPrBatch = async (argv, option, page = 1) => {
+  const per_page = 100;
+  const pull = await octokit
+    .request(`GET /repos/kungfu-trader/${argv.repo}/pulls`, {
+      owner: argv.owner,
+      repo: argv.repo,
+      per_page,
+      state: 'closed',
+      page,
+      ...option,
+      headers: {
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    })
+    .then((res) =>
+      res.data
+        .filter((v) => v.merged_at)
+        .map((v) => ({
+          number: v.number,
+          title: v.title,
+          merged_at: mergedAtFormat(v.merged_at),
+          base: v.base.ref,
+        })),
+    )
+    .catch((e) => {
+      console.error(e.message);
+      return [];
+    });
+  if (pull.length < per_page) {
+    return pull;
+  }
+  return sortBy([...pull, ...(await getPrBatch(argv, base, page + 1))], 'merged_at');
+};
+
+const getPr = async (argv, pullRequestNumber) => {
+  const pull = await octokit
+    .request(`GET /repos/kungfu-trader/${argv.repo}/pulls/${pullRequestNumber}`, {
+      owner: argv.owner,
+      repo: argv.repo,
+      headers: {
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    })
+    .catch((e) => console.error('get pr error', e.message));
+
+  const result = pull?.data?.merged ? pull.data : null;
+  console.log('from request pull', result?.title, pullRequestNumber);
+  return result;
+};
+
+const findIssues = async (argv, pullRequestNumber) => {
+  const iss = await octokit
+    .graphql(
+      `query{
+        repository(name: "${argv.repo}", owner: "${argv.owner}") {
+          pullRequest(number: ${pullRequestNumber}) {
+            title
+            closingIssuesReferences (first: 100) {
+              edges {
+                node {
+                  number
+                  body
+                  title,
+                  url
+                }
               }
             }
           }
         }
-      }
-    } 
-  `);
-  const issNumbers = iss?.repository?.pullRequest?.closingIssuesReferences.edges;
-  if (issNumbers) {
-    for (const issue of issNumbers) {
-      const prNumber = issue.node.number;
-      const body = issue.node.body;
-      const title = issue.node.title;
-
-      const lastIdx = title.indexOf('#', 1);
-      const itemId = title.slice(1, lastIdx);
-
-      if (close) {
-        console.log('close issue', `prNumber: ${prNumber} body: ${body}, title: ${title} repo: ${argv.repo}`);
-        await doCloseIssue(argv.token, argv.repo, prNumber);
-        if (lastIdx > 1) {
-          console.log(`updateStatus to monday boardId: ${body} itemId: ${itemId} targetStatus: Done`);
-          await updateStatus(argv.mondayApi, body, itemId, 'Done');
-        }
-      } else {
-        if (lastIdx > 1) {
-          console.log(`updateStatus to monday boardId: ${body} itemId: ${itemId} targetStatus: Waiting test`);
-          await updateStatus(argv.mondayApi, body, itemId, 'Waiting test');
-        }
-      }
-    }
-  }
+      } 
+    `,
+    )
+    .catch((e) => console.error(e.message));
+  const issues = iss?.repository?.pullRequest?.closingIssuesReferences?.edges || [];
+  console.log(`pullRequestNumber: ${pullRequestNumber}, issues: ${issues.length}`);
+  return issues.map((v) => v.node);
 };
 
-getMatchName = function (headIn, baseIn) {
-  const failObj = { match: false, close: false, head: '', base: '' };
-  const match = headIn.match(/(dev|alpha)\/v(\d+)\/v(\d+\.\d)/);
-  if (!match) {
-    return failObj;
-  }
-  const channel = match[1];
-  let baseChannel = 'alpha';
-  if (channel == 'alpha') {
-    baseChannel = 'release';
-  }
-  const bashValidate = headIn.replace(channel, baseChannel);
-  if (bashValidate != baseIn) {
-    return failObj;
-  }
-  const devRef = headIn.replace('alpha', 'dev');
-  const closeObj = { match: true, close: false, head: '', base: '', dev: devRef };
-  if (channel == 'dev') {
-    return closeObj;
-  } else {
-    return { match: true, close: true, head: headIn.replace('alpha', 'dev'), base: headIn, dev: devRef };
-  }
+const mergedAtFormat = (merged_at) => {
+  return Date.parse(new Date(merged_at));
 };
 
-exports.getPulls = async function (argv, prNumber) {
-  const octokit = new Octokit({
-    auth: argv.token,
-  });
-  try {
-    let hasNextPage = true;
-    let page = 1;
-    let head = '';
-    let base = '';
-    let matchName;
-    do {
-      const pulls = await octokit.request(`GET /repos/kungfu-trader/${argv.repo}/pulls`, {
-        owner: 'kungfu-trader',
-        repo: argv.repo,
-        state: 'all',
-        per_page: 1,
-        page: page,
-        headers: {
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      });
-      if (pulls.data.length < 1) {
-        hasNextPage = false;
-        break;
-      } else {
-        page++;
-        console.log('pr number', pulls.data[0].number, prNumber);
-        if (head && base && pulls.data[0].merged_at) {
-          curHead = pulls.data[0].head.ref;
-          curBase = pulls.data[0].base.ref;
-          if (head == curHead && base == curBase) {
-            break;
-          } else if (curHead == matchName.head && curBase == matchName.base) {
-            await closeIssue(argv, pulls.data[0].number, !!matchName.close);
-          } else if (curBase == matchName.dev) {
-            await closeIssue(argv, pulls.data[0].number, !!matchName.close);
-          }
-        } else if (!head && !base && pulls.data[0].number == prNumber) {
-          head = pulls.data[0].head.ref;
-          base = pulls.data[0].base.ref;
-          matchName = getMatchName(head, base);
-          console.log('head', head, 'base', base);
-          console.log('matchName', matchName);
-          if (!matchName.match || !pulls.data[0].merged_at) {
-            break;
-          }
-          if (pulls.data[0].merged_at) {
-            closeIssue(argv, pulls.data[0].number, !!matchName.close);
-          }
-        }
-      }
-    } while (hasNextPage);
-  } catch (e) {
-    console.error(e);
-  }
-};
-
-updateStatus = async function (mondayapi, boardId, itemId, status) {
-  if (!boardId || boardId.length < 5) {
-    console.log('empty boardId:', boardId);
+const updateStatus = async function (mondayapi, boardId, itemId, status) {
+  if (!mondayapi || !boardId || !itemId) {
+    console.log('empty monday:', boardId, itemId, mondayapi?.length);
     return;
   }
-  if (!itemId || itemId.length < 5) {
-    console.log('empty itemId:', itemId);
-    return;
-  }
-
   const board = await axios
     .post(
       'https://api.monday.com/v2',
       JSON.stringify({
         query: `query {boards (ids: ${boardId}) {
-          columns { id title }
-          groups { id title }
-        }}`,
+              columns { id title }
+              groups { id title }
+            }}`,
       }),
       {
         headers: {
@@ -194,9 +206,9 @@ updateStatus = async function (mondayapi, boardId, itemId, status) {
 
   const moveItemTOGroup = `move_item_to_group (item_id: ${itemId}, group_id: ${groupId}){id}`;
   const query3 = `mutation{
-    change_column_value (board_id:${boardId}, item_id:${itemId}, column_id: ${statusColumnId}, value: "{\\\"label\\\": \\\"${status}\\\"}"){id}
-    ${groupId ? moveItemTOGroup : ''}
-  }`;
+        change_column_value (board_id:${boardId}, item_id:${itemId}, column_id: ${statusColumnId}, value: "{\\\"label\\\": \\\"${status}\\\"}"){id}
+        ${groupId ? moveItemTOGroup : ''}
+      }`;
   try {
     const ret = await axios.post(
       'https://api.monday.com/v2',
@@ -212,10 +224,23 @@ updateStatus = async function (mondayapi, boardId, itemId, status) {
     );
     console.log(`updateStatus to monday completed boardId: ${boardId} itemId: ${itemId} status:${status}`);
   } catch (e) {
-    console.log('-------------------');
-    // throw new Error(`updateStatus to monday failed ${e.message}`);
     console.error(`updateStatus to monday failed ${e.message} boardId: ${boardId} itemId: ${itemId}`);
   }
+};
+
+const closeIssue = function (argv, issue_number) {
+  return octokit
+    .request(`PATCH /repos/kungfu-trader/${argv.repo}/issues/${issue_number}`, {
+      owner: argv.owner,
+      repo: argv.repo,
+      issue_number,
+      state: 'closed',
+      headers: {
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    })
+    .then(() => console.log(`close issue completed ${issue_number}`))
+    .catch((e) => console.error(`close issue failed ${issue_number} ${e.message}`));
 };
 
 
@@ -20542,7 +20567,7 @@ var __webpack_exports__ = {};
 // This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
 (() => {
 var exports = __webpack_exports__;
-const lib = (exports.lib = __nccwpck_require__(2909));
+const lib = (exports.lib = __nccwpck_require__(6776));
 const core = __nccwpck_require__(2186);
 const github = __nccwpck_require__(5438);
 
