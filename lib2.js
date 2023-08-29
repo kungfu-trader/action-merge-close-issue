@@ -1,5 +1,6 @@
 const { Octokit } = require('@octokit/rest');
 const axios = require('axios');
+const sortBy = require('lodash.sortby');
 let octokit;
 
 exports.getPulls = async function (argv) {
@@ -77,6 +78,7 @@ const traverseReleasePr = async (argv, pullRequestNumber, devPulls, alphaPulls, 
 const traversePrereleasePulls = async (argv, pullRequestNumber, devPulls, alphaPulls, rightRange) => {
   const idx = alphaPulls.findIndex((v) => v.number === pullRequestNumber);
   const leftRange = alphaPulls[idx + 1]?.merged_at || 0;
+  console.log(alphaPulls[idx].title, leftRange, rightRange);
   const items = devPulls.filter((v) => v.merged_at >= leftRange && v.merged_at <= rightRange);
   let result = await findIssues(argv, pullRequestNumber);
   for await (const pull of items) {
@@ -100,23 +102,21 @@ const getPrBatch = async (argv, option, page = 1) => {
       },
     })
     .then((res) =>
-      res.data
-        .filter((v) => v.merged_at)
-        .map((v) => ({
-          number: v.number,
-          title: v.title,
-          merged_at: mergedAtFormat(v.merged_at),
-          base: v.base.ref,
-        })),
+      res.data.map((v) => ({
+        number: v.number,
+        title: v.title,
+        merged_at: mergedAtFormat(v.merged_at),
+        base: v.base.ref,
+      })),
     )
     .catch((e) => {
       console.error(e.message);
       return [];
     });
   if (pull.length < per_page) {
-    return pull;
+    return pull.filter((v) => !!v.merged_at);
   }
-  return sortBy([...pull, ...(await getPrBatch(argv, base, page + 1))], 'merged_at');
+  return sortBy([...pull, ...(await getPrBatch(argv, option, page + 1))], (v) => v.merged_at * -1);
 };
 
 const getPr = async (argv, pullRequestNumber) => {
@@ -164,7 +164,7 @@ const findIssues = async (argv, pullRequestNumber) => {
 };
 
 const mergedAtFormat = (merged_at) => {
-  return Date.parse(new Date(merged_at));
+  return merged_at ? Date.parse(new Date(merged_at)) : null;
 };
 
 const updateStatus = async function (mondayapi, boardId, itemId, status) {
@@ -197,7 +197,6 @@ const updateStatus = async function (mondayapi, boardId, itemId, status) {
   const launchGroupId = board.groups.find((v) => v.title.toUpperCase().includes('LAUNCH'))?.id;
   const waitGroupId = board.groups.find((v) => v.title.toUpperCase().includes('TEST'))?.id;
   const groupId = status === 'Done' ? launchGroupId : waitGroupId;
-
   const moveItemTOGroup = `move_item_to_group (item_id: ${itemId}, group_id: ${groupId}){id}`;
   const query3 = `mutation{
         change_column_value (board_id:${boardId}, item_id:${itemId}, column_id: ${statusColumnId}, value: "{\\\"label\\\": \\\"${status}\\\"}"){id}
