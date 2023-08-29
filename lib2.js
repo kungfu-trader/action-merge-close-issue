@@ -24,7 +24,6 @@ const getPrIssues = async (argv) => {
     issuesHandle(argv, issues, false);
   }
   if (baseRef.startsWith('release/')) {
-    console.log(alphaPulls);
     const issues = await traverseReleasePr(argv, argv.pullRequestNumber, devPulls, alphaPulls, releasePulls, mergedAt);
     issuesHandle(argv, issues, true);
   }
