@@ -21,15 +21,15 @@ const getPrIssues = async (argv) => {
   const { devPulls, alphaPulls, releasePulls } = await getPrList(argv, baseRef, headRef);
   if (baseRef.startsWith('alpha/')) {
     const issues = await traversePrereleasePulls(argv, argv.pullRequestNumber, devPulls, alphaPulls, mergedAt);
-    issuesHandle(argv, issues, false);
+    issuesHandle(argv, issues, false, current);
   }
   if (baseRef.startsWith('release/')) {
     const issues = await traverseReleasePr(argv, argv.pullRequestNumber, devPulls, alphaPulls, releasePulls, mergedAt);
-    issuesHandle(argv, issues, true);
+    issuesHandle(argv, issues, true, current);
   }
 };
 
-const issuesHandle = async (argv, issues, closed) => {
+const issuesHandle = async (argv, issues, closed, current) => {
   const { items } = issues.reduce(
     (acc, cur) => {
       if (!acc.set.has(cur.number)) {
@@ -46,7 +46,7 @@ const issuesHandle = async (argv, issues, closed) => {
     const title = issue.title;
     const lastIdx = title.indexOf('#', 1);
     const itemId = title.slice(1, lastIdx);
-    lastIdx > 1 && (await updateStatus(argv.mondayApi, issue.body, itemId, status));
+    lastIdx > 1 && (await updateStatus(argv.mondayApi, issue.body, itemId, status, current.title));
   }
 };
 
@@ -167,19 +167,69 @@ const mergedAtFormat = (merged_at) => {
   return merged_at ? Date.parse(new Date(merged_at)) : null;
 };
 
-const updateStatus = async function (mondayapi, boardId, itemId, status) {
+const updateStatus = async function (mondayapi, boardId, itemId, status, prTitle) {
   if (!mondayapi || !boardId || !itemId) {
     console.log('empty monday:', boardId, itemId, mondayapi?.length);
     return;
   }
-  const board = await axios
+  const board = await mondayGetBoardInfo(mondayapi, boardId);
+  if (!board) {
+    return;
+  }
+  const statusColumnId = board.columns.find((v) => v.title.toUpperCase().includes('STATUS'))?.id;
+  const statusVersionId = board.columns.find((v) => v.title.toUpperCase().includes('VERSION'))?.id;
+  const launchGroupId = board.groups.find((v) => v.title.toUpperCase().includes('LAUNCH'))?.id;
+  const waitGroupId = board.groups.find((v) => v.title.toUpperCase().includes('TEST'))?.id;
+  const groupId = status === 'Done' ? launchGroupId : waitGroupId;
+  const moveItemTOGroup = `move_item_to_group (item_id: ${itemId}, group_id: \"${groupId}\"){id}`;
+
+  await mondayMutationMethod(
+    mondayapi,
+    `mutation{
+    change_simple_column_value (board_id:${boardId}, item_id:${itemId}, column_id:\"${statusColumnId}\", value:\"${status}\"){id}
+    ${groupId ? moveItemTOGroup : ''}
+  }`,
+    () => console.log(`updateStatus to monday completed boardId: ${boardId} itemId: ${itemId} status:${status}`),
+    () => console.error(`updateStatus to monday failed ${e.message} boardId: ${boardId} itemId: ${itemId}`),
+  );
+  await mondayMutationMethod(
+    mondayapi,
+    `mutation{
+    change_simple_column_value (board_id:${boardId}, item_id:${itemId}, column_id:\"${statusVersionId}\", value:\"${prTitle}\"){id}
+  }`,
+  );
+};
+
+const mondayMutationMethod = async (mondayapi, query, onSuccess, onError) => {
+  return axios
+    .post('https://api.monday.com/v2', JSON.stringify({ query }), {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: mondayapi,
+        'API-Version': '2024-01',
+      },
+    })
+    .then((res) => {
+      if (res.data.errors) {
+        throw new Error(res.data.errors?.[0]?.message);
+      }
+      onSuccess?.();
+    })
+    .catch((e) => {
+      console.error(e.message);
+      onError?.();
+    });
+};
+
+const mondayGetBoardInfo = async (mondayapi, boardId) => {
+  return axios
     .post(
       'https://api.monday.com/v2',
       JSON.stringify({
         query: `query {boards (ids: ${boardId}) {
-              columns { id title }
-              groups { id title }
-            }}`,
+            columns { id title }
+            groups { id title }
+          }}`,
       }),
       {
         headers: {
@@ -196,41 +246,6 @@ const updateStatus = async function (mondayapi, boardId, itemId, status) {
       return res.data?.data?.boards?.[0];
     })
     .catch((e) => console.log(e?.message));
-  if (!board) {
-    return;
-  }
-  const statusColumnId = board.columns.find((v) => v.title.toUpperCase().includes('STATUS'))?.id;
-  const launchGroupId = board.groups.find((v) => v.title.toUpperCase().includes('LAUNCH'))?.id;
-  const waitGroupId = board.groups.find((v) => v.title.toUpperCase().includes('TEST'))?.id;
-  const groupId = status === 'Done' ? launchGroupId : waitGroupId;
-  const moveItemTOGroup = `move_item_to_group (item_id: ${itemId}, group_id: \"${groupId}\"){id}`;
-  const query3 = `mutation{
-    change_simple_column_value (board_id:${boardId}, item_id:${itemId}, column_id:\"${statusColumnId}\", value:\"${status}\"){id}
-    ${groupId ? moveItemTOGroup : ''}
-  }`;
-  return axios
-    .post(
-      'https://api.monday.com/v2',
-      JSON.stringify({
-        query: query3,
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: mondayapi,
-          'API-Version': '2024-01',
-        },
-      },
-    )
-    .then((res) => {
-      if (res.data.errors) {
-        throw new Error(res.data.errors?.[0]?.message);
-      }
-      console.log(`updateStatus to monday completed boardId: ${boardId} itemId: ${itemId} status:${status}`);
-    })
-    .catch((e) => {
-      console.error(`updateStatus to monday failed ${e.message} boardId: ${boardId} itemId: ${itemId}`);
-    });
 };
 
 const closeIssue = function (argv, issue_number) {
